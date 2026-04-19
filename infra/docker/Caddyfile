@@ -1,0 +1,70 @@
+# Internal reverse proxy. Cloudflare Tunnel terminates TLS for the public;
+# Caddy routes requests forwarded from cloudflared on :80 based on Host header.
+#
+# X-Forwarded-Proto is forced to "https" on all upstreams because cloudflared
+# always terminates TLS before forwarding. Without this, apps like Ghost
+# think they're on HTTP and redirect-loop back to HTTPS.
+
+{
+	admin off
+	auto_https off
+}
+
+(upstream-https) {
+	header_up X-Forwarded-Proto https
+	header_up X-Forwarded-Host {host}
+}
+
+:80 {
+	@ghost host aitoolgeek.ai www.aitoolgeek.ai
+	handle @ghost {
+		# Plausible first-party proxy — bypass ad-blockers that match /js/script.*.js pattern.
+		@plausible_js path /js/sc.js
+		handle @plausible_js {
+			rewrite * /js/script.file-downloads.hash.outbound-links.pageview-props.tagged-events.js
+			reverse_proxy plausible:8000 {
+				header_up Host stats.aitoolgeek.ai
+				header_up X-Forwarded-Proto https
+			}
+		}
+		@plausible_event path /api/event
+		handle @plausible_event {
+			reverse_proxy plausible:8000 {
+				header_up Host stats.aitoolgeek.ai
+				header_up X-Forwarded-Proto https
+			}
+		}
+
+		# Everything else → Ghost
+		handle {
+			reverse_proxy ghost:2368 {
+				import upstream-https
+			}
+		}
+	}
+
+	@n8n host n8n.aitoolgeek.ai
+	handle @n8n {
+		reverse_proxy n8n:5678 {
+			import upstream-https
+		}
+	}
+
+	@plausible host stats.aitoolgeek.ai
+	handle @plausible {
+		reverse_proxy plausible:8000 {
+			import upstream-https
+		}
+	}
+
+	@uptime host status.aitoolgeek.ai
+	handle @uptime {
+		reverse_proxy uptime:3001 {
+			import upstream-https
+		}
+	}
+
+	handle {
+		respond "aitoolgeek stack — unknown host" 404
+	}
+}

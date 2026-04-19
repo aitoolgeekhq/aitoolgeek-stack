@@ -1,0 +1,27 @@
+# Never commit secrets
+.env
+.env.local
+.env.*.local
+*.secret
+*.key
+*.pem
+
+# Credentials for cloudflared tunnels
+*.json.credentials
+infra/cloudflared/*.json
+
+# Local state
+.DS_Store
+*.log
+node_modules/
+dist/
+build/
+
+# Prisma / other per-user
+*.db
+*.db-journal
+
+# Editor
+.vscode/
+.idea/
+*.swp
