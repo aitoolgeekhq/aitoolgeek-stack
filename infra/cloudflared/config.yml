@@ -1,0 +1,31 @@
+# Cloudflare Tunnel ingress template.
+#
+# Steps:
+#   1. cloudflared tunnel create stack     (writes credentials JSON into ~/.cloudflared/)
+#   2. Replace YOUR-TUNNEL-UUID below (two places)
+#   3. Replace YOURDOMAIN.com with your real domain(s)
+#   4. Replace ${CONTAINER_IP} with the IP of your Docker host
+#      (on Incus: `incus list stack-web -c4`)
+#   5. Copy this file to ~/.cloudflared/config-stack.yml
+#   6. Install the systemd unit (see cloudflared.service) and enable it
+
+tunnel: YOUR-TUNNEL-UUID
+credentials-file: /home/YOUR-USER/.cloudflared/YOUR-TUNNEL-UUID.json
+
+ingress:
+  - hostname: YOURDOMAIN.com
+    service: http://${CONTAINER_IP}:80
+
+  - hostname: www.YOURDOMAIN.com
+    service: http://${CONTAINER_IP}:80
+
+  - hostname: n8n.YOURDOMAIN.com
+    service: http://${CONTAINER_IP}:80
+
+  - hostname: stats.YOURDOMAIN.com
+    service: http://${CONTAINER_IP}:80
+
+  - hostname: status.YOURDOMAIN.com
+    service: http://${CONTAINER_IP}:80
+
+  - service: http_status:404

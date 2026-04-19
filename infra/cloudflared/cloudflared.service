@@ -1,0 +1,18 @@
+# systemd unit template for one Cloudflare Tunnel.
+# Install at /etc/systemd/system/cloudflared-stack.service
+# Edit User= and the config path before enabling.
+
+[Unit]
+Description=Cloudflare Tunnel (stack)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR-USER
+ExecStart=/usr/bin/cloudflared tunnel --config /home/YOUR-USER/.cloudflared/config-stack.yml run stack
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

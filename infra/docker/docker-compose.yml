@@ -1,7 +1,6 @@
-name: aitoolgeek
+name: stack
 
 services:
-  # ---------------- Reverse proxy + auto HTTPS ----------------
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -12,30 +11,33 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [aitg]
+    environment:
+      GHOST_DOMAIN: ${GHOST_DOMAIN}
+      N8N_DOMAIN: ${N8N_DOMAIN}
+      PLAUSIBLE_DOMAIN: ${PLAUSIBLE_DOMAIN}
+      UPTIME_DOMAIN: ${UPTIME_DOMAIN}
+    networks: [stack]
     depends_on: [ghost, n8n, plausible]
 
-  # ---------------- Ghost (blog + newsletter) ----------------
   ghost:
     image: ghost:5-alpine
     restart: unless-stopped
     environment:
-      url: https://${GHOST_DOMAIN:-aitoolgeek.ai}
+      url: https://${GHOST_DOMAIN}
       database__client: mysql
       database__connection__host: ghost_db
       database__connection__user: ghost
       database__connection__password: ${GHOST_DB_PASSWORD}
       database__connection__database: ghost
       mail__transport: SMTP
-      mail__options__service: ${MAIL_SERVICE:-}
-      mail__options__host: ${MAIL_HOST:-}
+      mail__options__host: ${MAIL_HOST}
       mail__options__port: ${MAIL_PORT:-587}
-      mail__options__auth__user: ${MAIL_USER:-}
-      mail__options__auth__pass: ${MAIL_PASSWORD:-}
-      mail__from: ${MAIL_FROM:-hello@aitoolgeek.ai}
+      mail__options__auth__user: ${MAIL_USER}
+      mail__options__auth__pass: ${MAIL_PASSWORD}
+      mail__from: ${MAIL_FROM}
     volumes:
       - ghost_content:/var/lib/ghost/content
-    networks: [aitg]
+    networks: [stack]
     depends_on:
       ghost_db:
         condition: service_healthy
@@ -51,38 +53,36 @@ services:
       MYSQL_ROOT_PASSWORD: ${GHOST_DB_ROOT_PASSWORD}
     volumes:
       - ghost_db_data:/var/lib/mysql
-    networks: [aitg]
+    networks: [stack]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${GHOST_DB_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 12
 
-  # ---------------- n8n (automation) ----------------
   n8n:
     image: n8nio/n8n:latest
     restart: unless-stopped
     environment:
-      N8N_HOST: ${N8N_DOMAIN:-n8n.aitoolgeek.ai}
+      N8N_HOST: ${N8N_DOMAIN}
       N8N_PROTOCOL: https
-      WEBHOOK_URL: https://${N8N_DOMAIN:-n8n.aitoolgeek.ai}/
-      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:-n8n.aitoolgeek.ai}/
+      WEBHOOK_URL: https://${N8N_DOMAIN}/
+      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}/
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_DATABASE: n8n
       DB_POSTGRESDB_USER: n8n
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_N8N_PASSWORD}
-      GENERIC_TIMEZONE: ${TZ:-Asia/Dubai}
+      GENERIC_TIMEZONE: ${TZ:-UTC}
       N8N_DEFAULT_BINARY_DATA_MODE: filesystem
     volumes:
       - n8n_data:/home/node/.n8n
-    networks: [aitg]
+    networks: [stack]
     depends_on:
       postgres:
         condition: service_healthy
 
-  # ---------------- Shared Postgres (for n8n + Plausible) ----------------
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -91,34 +91,32 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks: [aitg]
+    networks: [stack]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  # ---------------- Redis (shared cache) ----------------
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    networks: [aitg]
+    networks: [stack]
 
-  # ---------------- Plausible analytics ----------------
   plausible:
     image: ghcr.io/plausible/community-edition:v2.1.5
     restart: unless-stopped
     command: sh -c "/entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
     environment:
-      BASE_URL: https://${PLAUSIBLE_DOMAIN:-stats.aitoolgeek.ai}
+      BASE_URL: https://${PLAUSIBLE_DOMAIN}
       SECRET_KEY_BASE: ${PLAUSIBLE_SECRET_KEY_BASE}
       DATABASE_URL: postgres://plausible:${POSTGRES_PLAUSIBLE_PASSWORD}@postgres:5432/plausible
       CLICKHOUSE_DATABASE_URL: http://plausible_ch:8123/plausible_events
       DISABLE_REGISTRATION: "invite_only"
-    networks: [aitg]
+    networks: [stack]
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,17 +129,16 @@ services:
     volumes:
       - plausible_ch_data:/var/lib/clickhouse
       - ./plausible-clickhouse-user.xml:/etc/clickhouse-server/users.d/logging.xml:ro
-    networks: [aitg]
+    networks: [stack]
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
 
-  # ---------------- Uptime monitoring ----------------
   uptime:
     image: louislam/uptime-kuma:1
     restart: unless-stopped
     volumes:
       - uptime_data:/app/data
-    networks: [aitg]
+    networks: [stack]
 
 volumes:
   caddy_data:
@@ -155,5 +152,5 @@ volumes:
   uptime_data:
 
 networks:
-  aitg:
+  stack:
     driver: bridge

@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Create an Incus system container for the AI Tool Geek web stack.
-# Runs Ghost, n8n, Plausible, Postgres, Redis behind Caddy.
-# GPU services (Ollama, XTTS, Whisper, ComfyUI) are in Pass 2.
+# Create an Incus system container and install Docker inside it.
+# The stack then runs as docker-compose inside this container.
 #
-# Usage:   ./create-stack-container.sh
-# Re-run:  it's idempotent — safe to run multiple times.
+# Usage:  ./create-stack-container.sh
+# Idempotent — safe to re-run.
 
 set -euo pipefail
 
-CONTAINER="aitoolgeek-web"
-IMAGE="images:ubuntu/24.04/cloud"
-STORAGE_GB=50
-MEMORY="6GiB"
-CPUS="4"
+CONTAINER="${CONTAINER_NAME:-stack-web}"
+IMAGE="${BASE_IMAGE:-images:ubuntu/24.04/cloud}"
+STORAGE_GB="${STORAGE_GB:-50}"
+MEMORY="${MEMORY:-6GiB}"
+CPUS="${CPUS:-4}"
 
-echo "▶ Creating Incus container: ${CONTAINER}"
+echo "▶ Incus container: ${CONTAINER}"
 
 if incus info "${CONTAINER}" >/dev/null 2>&1; then
-  echo "  ✓ Container ${CONTAINER} already exists — skipping creation."
+  echo "  ✓ already exists — skipping creation"
 else
   incus launch "${IMAGE}" "${CONTAINER}" \
     -c limits.cpu="${CPUS}" \
@@ -25,54 +24,48 @@ else
     -c security.nesting=true \
     -c security.syscalls.intercept.mknod=true \
     -c security.syscalls.intercept.setxattr=true
-  echo "  ✓ Container created."
+  echo "  ✓ created"
 fi
 
-echo "▶ Setting root disk size to ${STORAGE_GB}GB"
+echo "▶ Root disk: ${STORAGE_GB}GB"
 incus config device override "${CONTAINER}" root size="${STORAGE_GB}GiB" 2>/dev/null || true
 
-echo "▶ Waiting for container to be ready..."
-until incus exec "${CONTAINER}" -- bash -c "systemctl is-system-running --wait >/dev/null 2>&1 || true; command -v apt >/dev/null"; do
+echo "▶ Waiting for container to finish boot…"
+until incus exec "${CONTAINER}" -- bash -c "command -v apt >/dev/null"; do
   sleep 2
 done
-echo "  ✓ Ready."
 
-echo "▶ Installing Docker + docker compose inside the container"
+echo "▶ Installing Docker + compose plugin"
 incus exec "${CONTAINER}" -- bash -s <<'INNER'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-
 if command -v docker >/dev/null 2>&1; then
-  echo "  ✓ Docker already installed"
-else
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg >/dev/null
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" \
-    > /etc/apt/sources.list.d/docker.list
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
-  systemctl enable --now docker >/dev/null
-  echo "  ✓ Docker installed"
+  echo "  ✓ docker already installed"; exit 0
 fi
-
-mkdir -p /opt/aitoolgeek
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl gnupg >/dev/null
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update -qq
+apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+systemctl enable --now docker >/dev/null
+mkdir -p /opt/stack
+echo "  ✓ docker installed"
 INNER
 
-echo "▶ Pushing stack files into the container"
+echo "▶ Pushing docker/ files into the container at /opt/stack/"
 incus file push --recursive --quiet \
   "$(dirname "$0")/../docker/" \
-  "${CONTAINER}/opt/aitoolgeek/"
+  "${CONTAINER}/opt/stack/"
 
 echo
-echo "✅ Done. Next steps:"
-echo "   1. SSH into the container:"
-echo "        incus exec ${CONTAINER} -- bash"
-echo "   2. cd /opt/aitoolgeek/docker"
-echo "   3. cp .env.example .env   # then edit secrets"
-echo "   4. docker compose up -d"
+echo "✅ Container ready. Next:"
+echo "   incus exec ${CONTAINER} -- bash"
+echo "   cd /opt/stack/docker && cp .env.example .env && vim .env"
+echo "   docker compose up -d"
 echo
-echo "   To get the container's IP (for Cloudflare Tunnel config):"
-echo "        incus list ${CONTAINER} -c4"
+echo "   Container IP (for Cloudflare Tunnel):"
+echo "     incus list ${CONTAINER} -c4"

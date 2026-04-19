@@ -1,9 +1,10 @@
-# Internal reverse proxy. Cloudflare Tunnel terminates TLS for the public;
-# Caddy routes requests forwarded from cloudflared on :80 based on Host header.
+# Internal reverse proxy. TLS is terminated upstream (e.g. Cloudflare Tunnel),
+# so Caddy listens on :80 and routes by Host header.
 #
-# X-Forwarded-Proto is forced to "https" on all upstreams because cloudflared
-# always terminates TLS before forwarding. Without this, apps like Ghost
-# think they're on HTTP and redirect-loop back to HTTPS.
+# X-Forwarded-Proto is forced to "https" on all upstreams so apps like Ghost
+# don't redirect-loop back to HTTPS.
+#
+# Hosts come from env vars — set them in docker-compose.yml / .env.
 
 {
 	admin off
@@ -16,26 +17,25 @@
 }
 
 :80 {
-	@ghost host aitoolgeek.ai www.aitoolgeek.ai
+	@ghost host {$GHOST_DOMAIN} www.{$GHOST_DOMAIN}
 	handle @ghost {
-		# Plausible first-party proxy — bypass ad-blockers that match /js/script.*.js pattern.
+		# Plausible first-party proxy (bypasses ad-blockers that match /js/script.*.js).
 		@plausible_js path /js/sc.js
 		handle @plausible_js {
 			rewrite * /js/script.file-downloads.hash.outbound-links.pageview-props.tagged-events.js
 			reverse_proxy plausible:8000 {
-				header_up Host stats.aitoolgeek.ai
+				header_up Host {$PLAUSIBLE_DOMAIN}
 				header_up X-Forwarded-Proto https
 			}
 		}
 		@plausible_event path /api/event
 		handle @plausible_event {
 			reverse_proxy plausible:8000 {
-				header_up Host stats.aitoolgeek.ai
+				header_up Host {$PLAUSIBLE_DOMAIN}
 				header_up X-Forwarded-Proto https
 			}
 		}
 
-		# Everything else → Ghost
 		handle {
 			reverse_proxy ghost:2368 {
 				import upstream-https
@@ -43,21 +43,21 @@
 		}
 	}
 
-	@n8n host n8n.aitoolgeek.ai
+	@n8n host {$N8N_DOMAIN}
 	handle @n8n {
 		reverse_proxy n8n:5678 {
 			import upstream-https
 		}
 	}
 
-	@plausible host stats.aitoolgeek.ai
+	@plausible host {$PLAUSIBLE_DOMAIN}
 	handle @plausible {
 		reverse_proxy plausible:8000 {
 			import upstream-https
 		}
 	}
 
-	@uptime host status.aitoolgeek.ai
+	@uptime host {$UPTIME_DOMAIN}
 	handle @uptime {
 		reverse_proxy uptime:3001 {
 			import upstream-https
@@ -65,6 +65,6 @@
 	}
 
 	handle {
-		respond "aitoolgeek stack — unknown host" 404
+		respond "unknown host" 404
 	}
 }
